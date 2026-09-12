@@ -1,11 +1,19 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 
 
-def preprocess_argv(argv: Sequence[str]) -> list[str]:
+def preprocess_argv(
+    argv: Sequence[str],
+    *,
+    value_options: Collection[str] = (),
+) -> list[str]:
     """
     Convert key=value arguments into Click-style --key value pairs.
+
+    Values that follow known value-taking options are kept verbatim so an
+    equals sign inside a query, field value, path, or similar value is not
+    mistaken for key=value sugar.
 
     Example:
         anki note:add deck="A" Front="Q"
@@ -15,6 +23,7 @@ def preprocess_argv(argv: Sequence[str]) -> list[str]:
     out: list[str] = []
     i = 0
     argv_list = list(argv)
+    previous_token: str | None = None
 
     while i < len(argv_list):
         token = argv_list[i]
@@ -24,13 +33,16 @@ def preprocess_argv(argv: Sequence[str]) -> list[str]:
             out.extend(argv_list[i + 1 :])
             break
 
-        if _looks_like_named_param(token):
+        if previous_token in value_options:
+            out.append(token)
+        elif _looks_like_named_param(token):
             key, value = token.split("=", 1)
             out.append(f"--{key}")
             out.append(value)
         else:
             out.append(token)
 
+        previous_token = token
         i += 1
 
     return out
