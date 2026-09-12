@@ -24,11 +24,52 @@ def _is_set_on_cli(ctx: click.Context, param_name: str) -> bool:
     return ctx.get_parameter_source(param_name) is ParameterSource.COMMANDLINE
 
 
+def _value_option_names(params: list[click.Parameter]) -> set[str]:
+    names: set[str] = set()
+    for param in params:
+        if isinstance(param, click.Option) and not param.is_flag:
+            names.update(param.opts)
+            names.update(param.secondary_opts)
+    return names
+
+
 class NamespaceGroup(click.Group):
     """Click group with dynamic command discovery and key=value preprocessing."""
 
+    def _command_from_args(
+        self,
+        ctx: click.Context,
+        args: list[str],
+        root_value_options: set[str],
+    ) -> click.Command | None:
+        skip_next = False
+        for token in args:
+            if skip_next:
+                skip_next = False
+                continue
+            if token == "--":
+                break
+            if token in root_value_options:
+                skip_next = True
+                continue
+            if any(token.startswith(f"{option}=") for option in root_value_options):
+                continue
+            if token.startswith("-"):
+                continue
+
+            command = self.get_command(ctx, token)
+            if command is not None:
+                return command
+        return None
+
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
-        transformed = preprocess_argv(args)
+        root_value_options = _value_option_names(self.params)
+        value_options = set(root_value_options)
+        command = self._command_from_args(ctx, args, root_value_options)
+        if command is not None:
+            value_options.update(_value_option_names(command.params))
+
+        transformed = preprocess_argv(args, value_options=value_options)
         return super().parse_args(ctx, transformed)
 
     def list_commands(self, ctx: click.Context) -> list[str]:
