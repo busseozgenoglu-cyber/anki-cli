@@ -1,11 +1,20 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 
 
-def preprocess_argv(argv: Sequence[str]) -> list[str]:
+def preprocess_argv(
+    argv: Sequence[str],
+    *,
+    flag_options: Collection[str] = (),
+) -> list[str]:
     """
     Convert key=value arguments into Click-style --key value pairs.
+
+    Values belonging to an option are left untouched, even when they contain
+    ``=``. Unknown options are treated as value-taking so dynamic options such
+    as note field names remain safe. Known flag options can be supplied via
+    ``flag_options`` so key=value sugar still works immediately after a flag.
 
     Example:
         anki note:add deck="A" Front="Q"
@@ -13,11 +22,15 @@ def preprocess_argv(argv: Sequence[str]) -> list[str]:
         anki note:add --deck "A" --Front "Q"
     """
     out: list[str] = []
-    i = 0
     argv_list = list(argv)
+    flags = set(flag_options)
+    previous_option_takes_value = False
 
-    while i < len(argv_list):
-        token = argv_list[i]
+    for i, token in enumerate(argv_list):
+        if previous_option_takes_value:
+            out.append(token)
+            previous_option_takes_value = False
+            continue
 
         if token == "--":
             out.append("--")
@@ -28,10 +41,11 @@ def preprocess_argv(argv: Sequence[str]) -> list[str]:
             key, value = token.split("=", 1)
             out.append(f"--{key}")
             out.append(value)
-        else:
-            out.append(token)
+            continue
 
-        i += 1
+        out.append(token)
+        if token.startswith("-") and "=" not in token and token not in flags:
+            previous_option_takes_value = True
 
     return out
 
