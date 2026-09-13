@@ -24,11 +24,52 @@ def _is_set_on_cli(ctx: click.Context, param_name: str) -> bool:
     return ctx.get_parameter_source(param_name) is ParameterSource.COMMANDLINE
 
 
+def _option_names(command: click.Command, *, flags: bool) -> set[str]:
+    names: set[str] = set()
+    for param in command.params:
+        if not isinstance(param, click.Option) or param.is_flag is not flags:
+            continue
+        names.update(param.opts)
+        names.update(param.secondary_opts)
+    return names
+
+
+def _command_name_from_args(group: click.Group, args: list[str]) -> str | None:
+    """Find the raw subcommand while skipping values consumed by group options."""
+    value_options = _option_names(group, flags=False)
+    value_keys = {name.lstrip("-") for name in value_options}
+    skip_next = False
+
+    for token in args:
+        if skip_next:
+            skip_next = False
+            continue
+        if token == "--":
+            return None
+        if token in value_options:
+            skip_next = True
+            continue
+        if token.startswith("-"):
+            continue
+        if "=" in token and token.split("=", 1)[0] in value_keys:
+            continue
+        return token
+
+    return None
+
+
 class NamespaceGroup(click.Group):
     """Click group with dynamic command discovery and key=value preprocessing."""
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
-        transformed = preprocess_argv(args)
+        flag_options = _option_names(self, flags=True) | {"-h", "--help"}
+        command_name = _command_name_from_args(self, args)
+        if command_name is not None:
+            command = self.get_command(ctx, command_name)
+            if command is not None:
+                flag_options.update(_option_names(command, flags=True))
+
+        transformed = preprocess_argv(args, flag_options=flag_options)
         return super().parse_args(ctx, transformed)
 
     def list_commands(self, ctx: click.Context) -> list[str]:
